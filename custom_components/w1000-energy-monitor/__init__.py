@@ -247,7 +247,15 @@ class w1k_Portal(w1k_API):
         out = {}
         for report in json:
             dta = json[report]
-            out[report] = { 'state': dta['last_value'], 'unit':dta['unit'], 'attributes':{'curve':dta['curve'],'generated':dta['last_time']}}
+            out[report] = { 'state': dta['last_value'], 'unit':dta['unit'], 'attributes':{
+                'curve':dta['curve'],
+                'generated':dta['last_time'],
+                'state_class': 'measurement',
+            }}
+            if dta['unit'].endswith('W'):
+                out[report]['attributes']['device_class'] = 'power'
+            if dta['unit'].endswith('Wh'):
+                out[report]['attributes']['device_class'] = 'energy'
         return out
 
     def add_update_listener(self, listener):
