@@ -1,0 +1,9 @@
+{
+  "domain": "w1000-energy-monitor",
+  "name": "W1000 Energy Monitor",
+  "version": "0.1.1",
+  "documentation": "https://github.com/ZsBT/hass-w1000-portal",
+  "requirements": ["aiohttp>=3.6.2"],
+  "dependencies": [],
+  "codeowners": ["@ZsBT"]
+}
