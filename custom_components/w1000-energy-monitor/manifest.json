@@ -3,7 +3,9 @@
   "name": "W1000 Energy Monitor",
   "version": "0.1.1",
   "documentation": "https://github.com/ZsBT/hass-w1000-portal",
+  "issue_tracker": "https://github.com/ZsBT/hass-w1000-portal/issues",
   "requirements": ["aiohttp>=3.6.2"],
   "dependencies": [],
+  "iot_class": "cloud_poll",
   "codeowners": ["@ZsBT"]
 }
