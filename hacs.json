@@ -1,6 +1,5 @@
 {
     "name": "W1000 energy monitor",
     "render_readme": true,
-    "iot_class": "cloud_poll",
     "country": ["HU"]
   }
