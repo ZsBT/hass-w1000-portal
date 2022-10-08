@@ -14,3 +14,6 @@ See some screenshots at the Wiki page.
 
 You can create more reports on any workareas, just make sure you have exactly one curve at a report.
 
+## Set up Home Assistant
+
+See [[configuration-example.yaml]] on how to give the integration your login details.
