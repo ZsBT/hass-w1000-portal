@@ -16,4 +16,4 @@ You can create more reports on any workareas, just make sure you have exactly on
 
 ## Set up Home Assistant
 
-See [[configuration-example.yaml]] on how to give the integration your login details.
+See the [configuration example](configuration-example.yaml) on how to give the integration your login details.
