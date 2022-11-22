@@ -78,7 +78,7 @@ class w1k_API:
         self.account_url = endpoint+"/Account/Login"
         self.profile_data_url = endpoint + "/ProfileData/ProfileData"
         self.lastlogin = None
-        self.reports = reports.split(",")
+        self.reports = [ x.strip() for x in reports.split(",") ]
         self.session = None
 
 
@@ -135,18 +135,24 @@ class w1k_API:
             
             if not status == 200:
                 _LOGGER.error("Login failed.")
-                _LOGGER.error("HTML page: "+content)
-                _LOGGER.error("Index page was: "+index_content)
+                _LOGGER.debug("HTML page: "+content)
+                _LOGGER.debug("Index page was: "+index_content)
                 return False
                 
             if len(match)==0:
-                _LOGGER.error("could not find session data. HTML page: "+content)
+                _LOGGER.error("could not find session data. invalid or locked account?")
+                _LOGGER.debug("HTML page: "+content)
                 return False
             
             respob = yaml.safe_load(match[0]+"}")
             self.currentUser = respob['currentUser']
             self.workareas = respob['workareas']
             self.lastlogin = datetime.utcnow()
+            
+            for workarea in self.workareas:
+                for window in workarea['windows']:
+                    _LOGGER.debug("found report "+window['name']+" in workarea "+workarea['name'] )
+
             return True
             
         except Exception as ex:
@@ -247,15 +253,16 @@ class w1k_Portal(w1k_API):
         out = {}
         for report in json:
             dta = json[report]
-            out[report] = { 'state': dta['last_value'], 'unit':dta['unit'], 'attributes':{
-                'curve':dta['curve'],
-                'generated':dta['last_time'],
-                'state_class': 'measurement',
-            }}
-            if dta['unit'].endswith('W'):
-                out[report]['attributes']['device_class'] = 'power'
-            if dta['unit'].endswith('Wh'):
-                out[report]['attributes']['device_class'] = 'energy'
+            if dta and 'curve' in dta:
+                out[report] = { 'state': dta['last_value'], 'unit':dta['unit'], 'attributes':{
+                    'curve':dta['curve'],
+                    'generated':dta['last_time'],
+                    'state_class': 'measurement',
+                }}
+                if dta['unit'].endswith('W'):
+                    out[report]['attributes']['device_class'] = 'power'
+                if dta['unit'].endswith('Wh'):
+                    out[report]['attributes']['device_class'] = 'energy'
         return out
 
     def add_update_listener(self, listener):
