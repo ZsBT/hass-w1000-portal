@@ -9,16 +9,26 @@ import logging
 import aiohttp
 import voluptuous as vol
 
+from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers import discovery
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import async_track_utc_time_change
-from homeassistant.const import CONF_SCAN_INTERVAL
+from homeassistant.const import (
+    CONF_SCAN_INTERVAL,
+    ENERGY_KILO_WATT_HOUR
+)
 import homeassistant.util.dt as dt_util
 
 from bs4 import BeautifulSoup
 import requests, yaml, re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics,
+    get_last_statistics,
+    async_import_statistics
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -173,13 +183,13 @@ class w1k_API:
         for workarea in self.workareas:
             for window in workarea['windows']:
                 if window['name'] == reportname:
-                    return await self.read_reportid( int(window['reportid']) )
+                    return await self.read_reportid( int(window['reportid']), reportname )
         
         _LOGGER.error("report "+reportname+" not found")
         return [None]
         
 
-    async def read_reportid(self, reportid: int, ssl=True):
+    async def read_reportid(self, reportid: int, reportname: str, ssl=True):
         now = datetime.utcnow()
 
         loginerror = False
@@ -213,13 +223,44 @@ class w1k_API:
             unit = None
             lasttime = None
             ret = []
+            statistic_id = f"sensor.w1000_{reportname}"
+            statistics = []
             for window in jsonResponse:
                 unit = window['unit']
+                hourly_sum = None
                 for data in window['data']:
+                    dt=datetime.fromisoformat(data['time']+"+01:00").astimezone()
+                    # _LOGGER.debug(dt)
+                    if dt.minute == 0:
+                        if hourly_sum is not None and hourly_sum > 0:
+                            statistics.append(
+                                 StatisticData(
+                                     start=dt,
+                                     state=hourly_sum,
+                                     sum=hourly_sum
+                                 )
+                            )
+                        else:
+                            hourly_sum = data['value']
+                    else:
+                        if hourly_sum is None:
+                            hourly_sum = data['value']
+                        else:
+                            hourly_sum += data['value']
                     if data['value'] > 0:
                         lastvalue = round(data['value'],1)
                         lasttime = data['time']
                 ret.append( {'curve':window['name'], 'last_value':lastvalue, 'unit':window['unit'], 'last_time':lasttime} )
+                metadata = StatisticMetaData(
+                    has_mean=False,
+                    has_sum=True,
+                    name="w1000_"+reportname,
+                    source='recorder',
+                    statistic_id=statistic_id,
+                    unit_of_measurement=ENERGY_KILO_WATT_HOUR,
+                )
+                _LOGGER.debug("import statistic: "+statistic_id+" count: "+str(len(statistics)))
+                async_import_statistics(self._hass, metadata, statistics)
         else:
             _LOGGER.error("error http "+str(status) )
             print( jsonResponse )
