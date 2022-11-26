@@ -55,8 +55,6 @@ CONFIG_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
-
-
 async def async_setup(hass, config):
     scan_interval = config[DOMAIN][CONF_INTERVAL]
 
@@ -90,7 +88,7 @@ class w1k_API:
         self.lastlogin = None
         self.reports = [ x.strip() for x in reports.split(",") ]
         self.session = None
-
+        self.start_values = {'consumption': None, 'production': None}
 
     async def request_data(self, ssl=True):
         
@@ -225,33 +223,60 @@ class w1k_API:
             ret = []
             statistic_id = f"sensor.w1000_{reportname}"
             statistics = []
+            delta_values = False
             for window in jsonResponse:
                 unit = window['unit']
-                hourly_sum = None                                                   #it would be nice to determine starting value
+                hourly_sum = None
                 for data in window['data']:
-                    dt=datetime.fromisoformat(data['time']+"+02:00").astimezone()   #TODO: needs to calculate DST
                     value = data['value']
-                    if dt.minute == 0:
-                        if hourly_sum is not None and hourly_sum > 0:
-                            statistics.append(
-                                 StatisticData(
-                                     start=dt,
-                                     state=hourly_sum,
-                                     sum=hourly_sum
-                                 )
-                            )
-                            # _LOGGER.debug(f"data: {dt} {hourly_sum}")
-                            hourly_sum += value
-                        else:
-                            hourly_sum = value
-                    else:
-                        if hourly_sum is None:
-                            hourly_sum = value
-                        else:
-                            hourly_sum += value
                     if value > 0:
                         lastvalue = round(value,1)
                         lasttime = data['time']
+                    if window['data'].index(data) == 1:                                 #first element in list will be the starting data
+                        if window['name'].find(":1.8.0") > 0:                           #we will add the delta values, separately for consumption and production
+                            if self.start_values['consumption'] is None:
+                                self.start_values['consumption'] = value
+                        if window['name'].find(":2.8.0") > 0:
+                            if self.start_values['production'] is None:
+                                self.start_values['production'] = value
+                        if window['name'].find("+A") > 0:
+                            delta_values = True
+                            if self.start_values['consumption'] is not None:
+                                hourly_sum = self.start_values['consumption']
+                        if window['name'].find("-A") > 0:
+                            delta_values = True
+                            if self.start_values['production'] is not None:
+                                hourly_sum = self.start_values['production']
+                        dt=datetime.fromisoformat(data['time']+"+02:00").astimezone()   #TODO: needs to calculate DST
+                        if delta_values:                                                #only delta values has to be cummulated
+                            if dt.minute == 0:
+                                if hourly_sum is not None:
+                                    if hourly_sum > 0:
+                                        statistics.append(
+                                            StatisticData(
+                                                start=dt,
+                                                state=round(hourly_sum,3),
+                                                sum=round(hourly_sum,3)
+                                            )
+                                        )
+                                        #_LOGGER.debug(f"data: {dt} {hourly_sum}")
+                                        hourly_sum += value
+                                else:
+                                    hourly_sum = value
+                            else:
+                                if hourly_sum is None:
+                                    hourly_sum = value
+                                else:
+                                    hourly_sum += value
+                        else:
+                            statistics.append(
+                                StatisticData(
+                                    start=dt,
+                                    state=round(value,1),
+                                    sum=round(value,1)
+                                )
+                            )
+
                 ret.append( {'curve':window['name'], 'last_value':lastvalue, 'unit':window['unit'], 'last_time':lasttime} )
                 metadata = StatisticMetaData(
                     has_mean=False,
