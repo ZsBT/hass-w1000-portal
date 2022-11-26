@@ -199,11 +199,11 @@ class w1k_API:
         if loginerror:
             return None
             
-        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT00:00:00")
+        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT00:00:00")    #change this '-2' if you want a larger time window
         until = (now + timedelta(days=0 )).strftime("%Y-%m-%dT%H:00:00")
         
         params = {
-            "page": 1,"perPage": 96*3,
+            "page": 1,"perPage": 96*3,                                      #also you have to change '*3' (this could be in config)
             "reportId": reportid,
             "since": since,
             "until": until,
@@ -227,10 +227,10 @@ class w1k_API:
             statistics = []
             for window in jsonResponse:
                 unit = window['unit']
-                hourly_sum = None
+                hourly_sum = None                                                   #it would be nice to determine starting value
                 for data in window['data']:
-                    dt=datetime.fromisoformat(data['time']+"+01:00").astimezone()
-                    # _LOGGER.debug(dt)
+                    dt=datetime.fromisoformat(data['time']+"+02:00").astimezone()   #TODO: needs to calculate DST
+                    value = data['value']
                     if dt.minute == 0:
                         if hourly_sum is not None and hourly_sum > 0:
                             statistics.append(
@@ -240,15 +240,16 @@ class w1k_API:
                                      sum=hourly_sum
                                  )
                             )
+                            # _LOGGER.debug(f"data: {dt} {hourly_sum}")
                         else:
-                            hourly_sum = data['value']
+                            hourly_sum = value
                     else:
                         if hourly_sum is None:
-                            hourly_sum = data['value']
+                            hourly_sum = value
                         else:
-                            hourly_sum += data['value']
-                    if data['value'] > 0:
-                        lastvalue = round(data['value'],1)
+                            hourly_sum += value
+                    if value > 0:
+                        lastvalue = round(value,1)
                         lasttime = data['time']
                 ret.append( {'curve':window['name'], 'last_value':lastvalue, 'unit':window['unit'], 'last_time':lasttime} )
                 metadata = StatisticMetaData(
