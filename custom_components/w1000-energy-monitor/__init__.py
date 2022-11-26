@@ -199,11 +199,11 @@ class w1k_API:
         if loginerror:
             return None
             
-        since = (now + timedelta(days=-26)).strftime("%Y-%m-%dT00:00:00")    #change this '-2' if you want a larger time window
+        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT00:00:00")    #change this '-2' if you want a larger time window
         until = (now + timedelta(days=0 )).strftime("%Y-%m-%dT%H:00:00")
         
         params = {
-            "page": 1,"perPage": 96*27,                                      #also you have to change '*3' (this could be in config)
+            "page": 1,"perPage": 96*3,                                      #also you have to change '*3' (this could be in config)
             "reportId": reportid,
             "since": since,
             "until": until,
