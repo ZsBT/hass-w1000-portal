@@ -9,16 +9,26 @@ import logging
 import aiohttp
 import voluptuous as vol
 
+from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers import discovery
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import async_track_utc_time_change
-from homeassistant.const import CONF_SCAN_INTERVAL
+from homeassistant.const import (
+    CONF_SCAN_INTERVAL,
+    ENERGY_KILO_WATT_HOUR
+)
 import homeassistant.util.dt as dt_util
 
 from bs4 import BeautifulSoup
 import requests, yaml, re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
+from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics,
+    get_last_statistics,
+    async_import_statistics
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,8 +54,6 @@ CONFIG_SCHEMA = vol.Schema(
     },
     extra=vol.ALLOW_EXTRA,
 )
-
-
 
 async def async_setup(hass, config):
     scan_interval = config[DOMAIN][CONF_INTERVAL]
@@ -80,7 +88,7 @@ class w1k_API:
         self.lastlogin = None
         self.reports = [ x.strip() for x in reports.split(",") ]
         self.session = None
-
+        self.start_values = {'consumption': None, 'production': None}
 
     async def request_data(self, ssl=True):
         
@@ -173,13 +181,13 @@ class w1k_API:
         for workarea in self.workareas:
             for window in workarea['windows']:
                 if window['name'] == reportname:
-                    return await self.read_reportid( int(window['reportid']) )
+                    return await self.read_reportid( int(window['reportid']), reportname )
         
         _LOGGER.error("report "+reportname+" not found")
         return [None]
         
 
-    async def read_reportid(self, reportid: int, ssl=True):
+    async def read_reportid(self, reportid: int, reportname: str, ssl=True):
         now = datetime.utcnow()
 
         loginerror = False
@@ -189,11 +197,12 @@ class w1k_API:
         if loginerror:
             return None
             
-        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT00:00:00")
+#        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT00:00:00")    #change this '-2' if you want a larger time window
+        since = (now + timedelta(days=-3)).strftime("%Y-%m-%dT23:59:59")    #I had to change it because I got the starting values with 1 day late
         until = (now + timedelta(days=0 )).strftime("%Y-%m-%dT%H:00:00")
         
         params = {
-            "page": 1,"perPage": 96*3,
+            "page": 1,"perPage": 96*3,                                      #also you have to change '*3' (this could be in config)
             "reportId": reportid,
             "since": since,
             "until": until,
@@ -213,13 +222,69 @@ class w1k_API:
             unit = None
             lasttime = None
             ret = []
+            statistic_id = f"sensor.w1000_{reportname}"
+            statistics = []
+            delta_values = False
             for window in jsonResponse:
                 unit = window['unit']
+                hourly_sum = None
                 for data in window['data']:
-                    if data['value'] > 0:
-                        lastvalue = round(data['value'],1)
+                    value = data['value']
+                    dt=datetime.fromisoformat(data['time']+"+01:00").astimezone()       #TODO: needs to calculate DST
+                    if value > 0:
+                        lastvalue = round(value,1)
                         lasttime = data['time']
+                    if window['data'].index(data) == 0:                                 #first element in list will be the starting data
+                        delta_values = False
+                        if window['name'].find(":1.8.0") > 0:                           #we will add the delta values, separately for consumption and production
+                            if self.start_values['consumption'] is None:
+                                self.start_values['consumption'] = value
+                        if window['name'].find(":2.8.0") > 0:
+                            if self.start_values['production'] is None:
+                                self.start_values['production'] = value
+                        if window['name'].find("+A") > 0:
+                            delta_values = True
+                            if self.start_values['consumption'] is not None:
+                                hourly_sum = self.start_values['consumption']
+                        if window['name'].find("-A") > 0:
+                            delta_values = True
+                            if self.start_values['production'] is not None:
+                                hourly_sum = self.start_values['production']
+                    if delta_values:                                                    #only delta values has to be cummulated
+                        if hourly_sum is not None:
+                            if dt.minute == 0:
+                                if hourly_sum > 0:
+                                    statistics.append(
+                                        StatisticData(
+                                            start=dt,
+                                            state=round(hourly_sum,3),
+                                            sum=round(hourly_sum,3)
+                                        )
+                                    )
+                                    #_LOGGER.debug(f"data: {dt} {hourly_sum}")
+                                    hourly_sum += value
+                            else:
+                                hourly_sum += value
+                    else:
+                        statistics.append(
+                            StatisticData(
+                                start=dt,
+                                state=round(value,1),
+                                sum=round(value,1)
+                            )
+                        )
+
                 ret.append( {'curve':window['name'], 'last_value':lastvalue, 'unit':window['unit'], 'last_time':lasttime} )
+                metadata = StatisticMetaData(
+                    has_mean=False,
+                    has_sum=True,
+                    name="w1000_"+reportname,
+                    source='recorder',
+                    statistic_id=statistic_id,
+                    unit_of_measurement=ENERGY_KILO_WATT_HOUR,
+                )
+                _LOGGER.debug("import statistic: "+statistic_id+" count: "+str(len(statistics)))
+                async_import_statistics(self._hass, metadata, statistics)
         else:
             _LOGGER.error("error http "+str(status) )
             print( jsonResponse )
