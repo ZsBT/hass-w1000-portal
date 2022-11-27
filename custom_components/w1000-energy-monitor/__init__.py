@@ -197,12 +197,11 @@ class w1k_API:
         if loginerror:
             return None
             
-#        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT00:00:00")    #change this '-2' if you want a larger time window
-        since = (now + timedelta(days=-3)).strftime("%Y-%m-%dT23:59:59")    #I had to change it because I got the starting values with 1 day late
+        since = (now + timedelta(days=-3)).strftime("%Y-%m-%dT23:59:59")
         until = (now + timedelta(days=0 )).strftime("%Y-%m-%dT%H:00:00")
         
         params = {
-            "page": 1,"perPage": 96*3,                                      #also you have to change '*3' (this could be in config)
+            "page": 1,"perPage": 96*3,
             "reportId": reportid,
             "since": since,
             "until": until,
@@ -231,7 +230,7 @@ class w1k_API:
                 hourly_sum = None
                 for data in window['data']:
                     value = data['value']
-                    dt=datetime.fromisoformat(data['time']+"+01:00").astimezone()       #TODO: needs to calculate DST
+                    dt=datetime.fromisoformat(data['time']+"+02:00").astimezone()       #TODO: needs to calculate DST
                     if value > 0:
                         lastvalue = round(value,1)
                         lasttime = data['time']
