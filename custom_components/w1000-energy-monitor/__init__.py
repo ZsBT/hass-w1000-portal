@@ -8,6 +8,7 @@ import logging
 
 import aiohttp
 import voluptuous as vol
+import unicodedata
 
 from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers import discovery
@@ -15,7 +16,6 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import async_track_utc_time_change
 from homeassistant.const import (
     CONF_SCAN_INTERVAL,
-    ENERGY_KILO_WATT_HOUR
 )
 import homeassistant.util.dt as dt_util
 
@@ -222,7 +222,8 @@ class w1k_API:
             unit = None
             lasttime = None
             ret = []
-            statistic_id = f"sensor.w1000_{reportname}"
+            statistic_id = f"sensor.w1000_{unicodedata.normalize('NFKD',reportname).lower()}"
+            statistic_id = f'sensor.w1000_'+(''.join(ch for ch in unicodedata.normalize('NFKD', reportname) if not unicodedata.combining(ch)))
             statistics = []
             delta_values = False
             for window in jsonResponse:
@@ -275,16 +276,23 @@ class w1k_API:
                         )
 
                 ret.append( {'curve':window['name'], 'last_value':lastvalue, 'unit':window['unit'], 'last_time':lasttime} )
+                
                 metadata = StatisticMetaData(
                     has_mean=False,
                     has_sum=True,
-                    name="w1000_"+reportname,
+                    name="w1000 "+reportname,
                     source='recorder',
                     statistic_id=statistic_id,
-                    unit_of_measurement=ENERGY_KILO_WATT_HOUR,
+                    unit_of_measurement=window['unit'],
                 )
+#                _LOGGER.debug(metadata)
                 _LOGGER.debug("import statistic: "+statistic_id+" count: "+str(len(statistics)))
-                async_import_statistics(self._hass, metadata, statistics)
+                
+                try:
+                    async_import_statistics(self._hass, metadata, statistics)
+                except Exception as ex:
+                    _LOGGER.warn("exception at async_import_statistics '"+statistic_id+"': "+str(ex))
+                    
         else:
             _LOGGER.error("error http "+str(status) )
             print( jsonResponse )
@@ -319,15 +327,21 @@ class w1k_Portal(w1k_API):
         for report in json:
             dta = json[report]
             if dta and 'curve' in dta:
+                if '.8.' in dta['curve']:
+                    state_class = 'total_increasing'
+                else:
+                    state_class = 'measurement'
+                
                 out[report] = { 'state': dta['last_value'], 'unit':dta['unit'], 'attributes':{
                     'curve':dta['curve'],
                     'generated':dta['last_time'],
-                    'state_class': 'measurement',
+                    'state_class': state_class,
                 }}
-                if dta['unit'].endswith('W'):
+                if dta['unit'].endswith('W') or dta['unit'].endswith('Var'):
                     out[report]['attributes']['device_class'] = 'power'
-                if dta['unit'].endswith('Wh'):
+                if dta['unit'].endswith('Wh') or dta['unit'].endswith('Varh'):
                     out[report]['attributes']['device_class'] = 'energy'
+
         return out
 
     def add_update_listener(self, listener):
