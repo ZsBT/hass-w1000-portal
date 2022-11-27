@@ -5,7 +5,7 @@ It pulls data from W1000 portal reports.
 
 ## Changelog
 
-  - 2022-11-22: fixed bug occured when report name list included space in configuration.yaml
+  - 2022-11-22: fixed bug that occured when report name list included space in configuration.yaml
 
 ## Usage
 
@@ -49,3 +49,19 @@ As the kind of measurement [can not be detected automatically](https://github.co
           state: >
             {{ states("sensor.w1000_oraallas") | float }}
 ```
+
+### Further info
+
+Have some problems? Looking for examples? Visit the
+[Wiki](https://github.com/ZsBT/hass-w1000-portal/wiki).
+
+### Contribute!
+
+If you find this integration useful and think you're good in programming,
+feel free to create pull requests. I'd be thankful for code reviews,
+security audits.
+
+I am open to
+[discuss](https://github.com/ZsBT/hass-w1000-portal/discussions) new ideas,
+change considerations.
+
