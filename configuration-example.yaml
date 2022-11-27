@@ -1,6 +1,0 @@
-
-w1000-energy-monitor:
-  login_user: !secret w1000-email-address
-  login_pass: !secret w1000-password
-  url: https://energia.eon-hungaria.hu/W1000
-  reports: óraállás,visszatáplálás
