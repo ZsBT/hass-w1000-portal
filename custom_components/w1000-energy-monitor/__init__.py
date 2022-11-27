@@ -197,7 +197,8 @@ class w1k_API:
         if loginerror:
             return None
             
-        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT00:00:00")    #change this '-2' if you want a larger time window
+#        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT00:00:00")    #change this '-2' if you want a larger time window
+        since = (now + timedelta(days=-3)).strftime("%Y-%m-%dT23:59:59")    #I had to change it because I got the starting values with 1 day late
         until = (now + timedelta(days=0 )).strftime("%Y-%m-%dT%H:00:00")
         
         params = {
@@ -229,10 +230,12 @@ class w1k_API:
                 hourly_sum = None
                 for data in window['data']:
                     value = data['value']
+                    dt=datetime.fromisoformat(data['time']+"+01:00").astimezone()       #TODO: needs to calculate DST
                     if value > 0:
                         lastvalue = round(value,1)
                         lasttime = data['time']
-                    if window['data'].index(data) == 1:                                 #first element in list will be the starting data
+                    if window['data'].index(data) == 0:                                 #first element in list will be the starting data
+                        delta_values = False
                         if window['name'].find(":1.8.0") > 0:                           #we will add the delta values, separately for consumption and production
                             if self.start_values['consumption'] is None:
                                 self.start_values['consumption'] = value
@@ -247,35 +250,29 @@ class w1k_API:
                             delta_values = True
                             if self.start_values['production'] is not None:
                                 hourly_sum = self.start_values['production']
-                        dt=datetime.fromisoformat(data['time']+"+02:00").astimezone()   #TODO: needs to calculate DST
-                        if delta_values:                                                #only delta values has to be cummulated
+                    if delta_values:                                                    #only delta values has to be cummulated
+                        if hourly_sum is not None:
                             if dt.minute == 0:
-                                if hourly_sum is not None:
-                                    if hourly_sum > 0:
-                                        statistics.append(
-                                            StatisticData(
-                                                start=dt,
-                                                state=round(hourly_sum,3),
-                                                sum=round(hourly_sum,3)
-                                            )
+                                if hourly_sum > 0:
+                                    statistics.append(
+                                        StatisticData(
+                                            start=dt,
+                                            state=round(hourly_sum,3),
+                                            sum=round(hourly_sum,3)
                                         )
-                                        #_LOGGER.debug(f"data: {dt} {hourly_sum}")
-                                        hourly_sum += value
-                                else:
-                                    hourly_sum = value
-                            else:
-                                if hourly_sum is None:
-                                    hourly_sum = value
-                                else:
+                                    )
+                                    #_LOGGER.debug(f"data: {dt} {hourly_sum}")
                                     hourly_sum += value
-                        else:
-                            statistics.append(
-                                StatisticData(
-                                    start=dt,
-                                    state=round(value,1),
-                                    sum=round(value,1)
-                                )
+                            else:
+                                hourly_sum += value
+                    else:
+                        statistics.append(
+                            StatisticData(
+                                start=dt,
+                                state=round(value,1),
+                                sum=round(value,1)
                             )
+                        )
 
                 ret.append( {'curve':window['name'], 'last_value':lastvalue, 'unit':window['unit'], 'last_time':lasttime} )
                 metadata = StatisticMetaData(
