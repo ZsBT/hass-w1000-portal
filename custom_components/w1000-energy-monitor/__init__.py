@@ -221,7 +221,6 @@ class w1k_API:
             unit = None
             lasttime = None
             ret = []
-            statistic_id = f"sensor.w1000_{unicodedata.normalize('NFKD',reportname).lower()}"
             statistic_id = f'sensor.w1000_'+(''.join(ch for ch in unicodedata.normalize('NFKD', reportname) if not unicodedata.combining(ch)))
             statistics = []
             delta_values = False
@@ -258,7 +257,7 @@ class w1k_API:
                                             sum=round(hourly_sum,3)
                                         )
                                     )
-                                    _LOGGER.debug(f"data: {dt} {hourly_sum}")
+                                    #_LOGGER.debug(f"data: {dt} {hourly_sum}")
                                     hourly_sum += value
                             else:
                                 hourly_sum += value
