@@ -231,9 +231,6 @@ class w1k_API:
                 for data in window['data']:
                     value = data['value']
                     dt=datetime.fromisoformat(data['time']+"+02:00").astimezone()       #TODO: needs to calculate DST
-                    if value > 0:
-                        lastvalue = round(value,1)
-                        lasttime = data['time']
                     if window['data'].index(data) == 0:                                 #first element in list will be the starting data
                         delta_values = False
                         if window['name'].find(":1.8.0") > 0:                           #we will add the delta values, separately for consumption and production
@@ -261,7 +258,7 @@ class w1k_API:
                                             sum=round(hourly_sum,3)
                                         )
                                     )
-                                    #_LOGGER.debug(f"data: {dt} {hourly_sum}")
+                                    _LOGGER.debug(f"data: {dt} {hourly_sum}")
                                     hourly_sum += value
                             else:
                                 hourly_sum += value
@@ -273,6 +270,14 @@ class w1k_API:
                                 sum=round(value,1)
                             )
                         )
+
+                    if value > 0:
+                        if delta_values:
+                            lastvalue = round(hourly_sum,3)
+                            lasttime = data['time']
+                        else:
+                            lastvalue = round(value,1)
+                            lasttime = data['time']
 
                 ret.append( {'curve':window['name'], 'last_value':lastvalue, 'unit':window['unit'], 'last_time':lasttime} )
                 
