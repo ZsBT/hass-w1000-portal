@@ -197,7 +197,9 @@ class w1k_API:
         if loginerror:
             return None
             
-        since = (now + timedelta(days=-3)).strftime("%Y-%m-%dT23:59:59")
+        _LOGGER.debug(f"pulling report: {reportname}")
+        
+        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT23:59:59")
         until = (now + timedelta(days=0 )).strftime("%Y-%m-%dT%H:00:00")
         
         params = {
@@ -222,83 +224,95 @@ class w1k_API:
             lasttime = None
             ret = []
             statistic_id = f'sensor.w1000_'+(''.join(ch for ch in unicodedata.normalize('NFKD', reportname) if not unicodedata.combining(ch)))
-            statistics = []
-            delta_values = False
-            for window in jsonResponse:
-                unit = window['unit']
+            
+            haveReport_A = 0
+            haveReport_80 = 0
+            
+            hourly = {}
+            # collect hourly sums and total
+            for curve in jsonResponse:
+                unit = curve['unit']
                 hourly_sum = None
-                for data in window['data']:
-                    value = data['value']
-                    dt=datetime.fromisoformat(data['time']+"+02:00").astimezone()       #TODO: needs to calculate DST
-                    if window['data'].index(data) == 0:                                 #first element in list will be the starting data
-                        delta_values = False
-                        if window['name'].find(":1.8.0") > 0:                           #we will add the delta values, separately for consumption and production
-                            if self.start_values['consumption'] is None:
-                                self.start_values['consumption'] = value
-                        if window['name'].find(":2.8.0") > 0:
-                            if self.start_values['production'] is None:
-                                self.start_values['production'] = value
-                        if window['name'].find("+A") > 0:
-                            delta_values = True
-                            if self.start_values['consumption'] is not None:
-                                hourly_sum = self.start_values['consumption']
-                        if window['name'].find("-A") > 0:
-                            delta_values = True
-                            if self.start_values['production'] is not None:
-                                hourly_sum = self.start_values['production']
-                    if delta_values:                                                    #only delta values has to be cummulated
-                        if hourly_sum is not None:
-                            if dt.minute == 0:
-                                if hourly_sum > 0:
-                                    statistics.append(
-                                        StatisticData(
-                                            start=dt,
-                                            state=round(hourly_sum,3),
-                                            sum=round(hourly_sum,3)
-                                        )
-                                    )
-                                    #_LOGGER.debug(f"data: {dt} {hourly_sum}")
-                                    hourly_sum += value
-                            else:
-                                hourly_sum += value
+                _LOGGER.debug(f"curve: {curve['name']}")
+                name = curve['name']
+                
+                if name.endswith("A"):
+                    haveReport_A += 1
+                    for data in curve['data']:
+                        if data['status'] > 0:
+                            idx = data['time'][:13]
+                            if not idx in hourly:
+                                hourly[idx] = { 'sum':0, 'state':0 }
+                            hourly[idx]['sum'] += data['value']
+                            state = data['value']
+                            timestamp = data['time']
+                            
+                if '.8.' in name:
+                    haveReport_80 += 1
+                    for data in curve['data']:
+                        if data['status'] > 0:
+                            idx = data['time'][:13]
+                            if not idx in hourly:
+                                hourly[idx] = { 'sum':0, 'state':0 }
+                            hourly[idx]['state'] = data['value']
+                            state = data['value']
+                            timestamp = data['time']
+            
+            
+            # push statistics only if we have exactly one 15-min and one 1-day curve
+            if haveReport_A==1 and haveReport_80==1:
+                _LOGGER.debug("mixing curves to provide backward-statistics")
+                state = 0
+                statistics = []
+                sumsum = 0
+                
+                for idx in hourly:
+                    # skip unknown states from the beginning
+                    if state + hourly[idx]['state'] == 0:
+                        continue
+                    
+                    # create statistic entry
+                    timestamp = idx+":00:00+02:00"	#TODO: needs to calculate DST
+                    if hourly[idx]['state'] > 0:
+                        state = hourly[idx]['state']
                     else:
+                        state += hourly[idx]['sum']
+                    
+                    sumsum += hourly[idx]['sum']
+                    
+                    if hourly[idx]['sum'] > 0:	# TODO: not sure if we can skip an hour when sum is zero. 
                         statistics.append(
                             StatisticData(
-                                start=dt,
-                                state=round(value,1),
-                                sum=round(value,1)
+                                start = datetime.fromisoformat(timestamp).astimezone(),
+                                state = round(state,1),
+                                sum = sumsum
                             )
                         )
 
-                    if value > 0:
-                        if delta_values:
-                            lastvalue = round(hourly_sum,3)
-                            lasttime = data['time']
-                        else:
-                            lastvalue = round(value,1)
-                            lasttime = data['time']
-
-                ret.append( {'curve':window['name'], 'last_value':lastvalue, 'unit':window['unit'], 'last_time':lasttime} )
-                
                 metadata = StatisticMetaData(
-                    has_mean=False,
-                    has_sum=True,
-                    name="w1000 "+reportname,
-                    source='recorder',
-                    statistic_id=statistic_id,
-                    unit_of_measurement=window['unit'],
+                    has_mean = False,
+                    has_sum = True,
+                    name = "w1000 "+reportname,
+                    source = 'recorder',
+                    statistic_id = statistic_id,
+                    unit_of_measurement = curve['unit'],
                 )
-#                _LOGGER.debug(metadata)
-                _LOGGER.debug("import statistic: "+statistic_id+" count: "+str(len(statistics)))
-                
+                _LOGGER.debug("import statistics: "+statistic_id+" count: "+str(len(statistics)))
+                    
                 try:
                     async_import_statistics(self._hass, metadata, statistics)
                 except Exception as ex:
                     _LOGGER.warn("exception at async_import_statistics '"+statistic_id+"': "+str(ex))
+
+            else:
+                # report has other structure than a x.8.x and A curve
+                _LOGGER.debug("just publishing the state as-is")
+                
+            ret.append( {'curve':curve['name'], 'last_value':state, 'unit':curve['unit'], 'last_time':timestamp} )
                     
         else:
-            _LOGGER.error("error http "+str(status) )
-            print( jsonResponse )
+            _LOGGER.warn("error reading report: got http "+str(status) )
+            _LOGGER.debug( jsonResponse )
 
         return ret
 
