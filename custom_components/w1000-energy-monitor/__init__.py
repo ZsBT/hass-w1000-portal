@@ -19,7 +19,6 @@ from bs4 import BeautifulSoup
 import requests, yaml, re
 from datetime import datetime, timedelta
 
-
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "w1000-energy-monitor"
@@ -57,8 +56,9 @@ async def async_setup(hass, config):
     async_track_utc_time_change(
         hass,
         monitor.update,
-        minute=range(now.minute % scan_interval, 60, scan_interval),
-        second=now.second,
+        hour=[6,7,9,now.hour],
+        minute=now.minute,
+        second=now.second
     )
 
     hass.async_create_task(

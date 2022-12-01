@@ -5,6 +5,7 @@ It pulls data from W1000 portal reports.
 
 ## Changelog
 
+  - 2022-12-01: hotfix #9: restricting data polls to morning hours and HA reboots
   - 2022-11-22: fixed bug occured when report name list included space in configuration.yaml
 
 ## Usage
