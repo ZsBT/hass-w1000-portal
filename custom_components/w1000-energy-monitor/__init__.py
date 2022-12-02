@@ -18,9 +18,9 @@ from homeassistant.const import (
     CONF_SCAN_INTERVAL,
 )
 import homeassistant.util.dt as dt_util
+import requests, yaml, re, json, os
 
 from bs4 import BeautifulSoup
-import requests, yaml, re
 from datetime import datetime, timedelta, timezone
 
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
@@ -38,7 +38,7 @@ CONF_ENDPOINT = "url"
 CONF_USERNAME = "login_user"
 CONF_PASSWORD = "login_pass"
 CONF_REPORTS = "reports"
-CONF_INTERVAL = "scan_interval"
+CONF_TESTMODE = "testmode"
 
 CONFIG_SCHEMA = vol.Schema(
     {
@@ -47,7 +47,7 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Required(CONF_USERNAME): cv.string,
                 vol.Required(CONF_PASSWORD): cv.string,
                 vol.Required(CONF_REPORTS): cv.string,
-                vol.Optional(CONF_INTERVAL, default=60): cv.positive_int, # minutes
+                vol.Optional(CONF_TESTMODE, default=False): cv.boolean,
                 vol.Optional(CONF_ENDPOINT, default="https://energia.eon-hungaria.hu/W1000"): cv.string,
             }
         )
@@ -56,9 +56,8 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 async def async_setup(hass, config):
-    scan_interval = config[DOMAIN][CONF_INTERVAL]
-
     monitor = w1k_Portal(hass, config[DOMAIN][CONF_USERNAME], config[DOMAIN][CONF_PASSWORD], config[DOMAIN][CONF_ENDPOINT], config[DOMAIN][CONF_REPORTS] )
+    monitor.testmode = config[DOMAIN][CONF_TESTMODE]
     hass.data[DOMAIN] = monitor
 
     now = dt_util.utcnow()
@@ -81,7 +80,6 @@ async def async_setup(hass, config):
 class w1k_API:
 
     def __init__(self, username, password, endpoint, reports):
-
         self.username = username
         self.password = password
         self.account_url = endpoint+"/Account/Login"
@@ -89,6 +87,7 @@ class w1k_API:
         self.lastlogin = None
         self.reports = [ x.strip() for x in reports.split(",") ]
         self.session = None
+        self.testmode = False
         self.start_values = {'consumption': None, 'production': None}
 
     async def request_data(self, ssl=True):
@@ -111,6 +110,10 @@ class w1k_API:
         return self.session
 
     async def login(self, ssl=False):
+        if self.testmode:
+            _LOGGER.info("test mode, skip login")
+            return True
+        
         try:
             session = self.mysession()
             async with session.get(
@@ -165,13 +168,15 @@ class w1k_API:
             return True
             
         except Exception as ex:
-            availability = 'Offline'
             _LOGGER.error("exception at login")
             print(datetime.now(), "Error retrive data from {0}.".format(str(ex)))
             
     
     
     async def read_reportname(self, reportname: str):
+        if self.testmode:
+            return await self.read_reportid(-1, reportname)
+            
         loginerror = False
         if not self.lastlogin or self.lastlogin + timedelta(minutes=10) < datetime.utcnow():
             loginerror = not await self.login()
@@ -198,118 +203,102 @@ class w1k_API:
         if loginerror:
             return None
             
-        _LOGGER.debug(f"pulling report: {reportname}")
-        
-        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT23:59:59")
-        until = (now + timedelta(days=0 )).strftime("%Y-%m-%dT%H:00:00")
-        
-        params = {
-            "page": 1,"perPage": 96*3,
-            "reportId": reportid,
-            "since": since,
-            "until": until,
-            "_": (now - timedelta(hours=3)).strftime("%s557")
-        }
-        
-        session = self.mysession()
-        
-        async with session.get(
-            url=self.profile_data_url, data=params, ssl=ssl
-        ) as resp:
-            jsonResponse = await resp.json()
-            status = resp.status
-        
+        if self.testmode:
+            file = 'w1000_'+reportname+'.json'
+            if not os.path.exists(file):
+                _LOGGER.warn(f"file {file} does not exist in "+os.getcwd() )
+                return None
+            
+            _LOGGER.debug(f"reading data from {file}")
+            jsonResponse = json.load(open(file))
+            status = 200
+        else:
+            _LOGGER.debug(f"pulling report: {reportname}")
+            since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT23:59:59")
+            until = (now + timedelta(days=0 )).strftime("%Y-%m-%dT%H:00:00")
+            
+            params = {
+                "page": 1,"perPage": 96*3,
+                "reportId": reportid,
+                "since": since,
+                "until": until,
+                "_": (now - timedelta(hours=3)).strftime("%s557")
+            }
+            
+            session = self.mysession()
+            async with session.get(
+                url=self.profile_data_url, data=params, ssl=ssl
+            ) as resp:
+                jsonResponse = await resp.json()
+                status = resp.status
+            
+                    
         if status == 200:
             lastvalue = None
             unit = None
             lasttime = None
             ret = []
             statistic_id = f'sensor.w1000_'+(''.join(ch for ch in unicodedata.normalize('NFKD', reportname) if not unicodedata.combining(ch)))
-            
-            haveReport_A = 0
-            haveReport_80 = 0
-            
-            hourly = {}
-            # collect hourly sums and total
-            for curve in jsonResponse:
-                unit = curve['unit']
+            statistics = []
+            metadata = []
+            haveReport_A = False
+            for window in jsonResponse:
+                unit = window['unit']
                 hourly_sum = None
-                _LOGGER.debug(f"curve: {curve['name']}")
-                name = curve['name']
-                
-                if name.endswith("A"):
-                    haveReport_A += 1
-                    for data in curve['data']:
-                        if data['status'] > 0:
-                            idx = data['time'][:13]
-                            if not idx in hourly:
-                                hourly[idx] = { 'sum':0, 'state':0 }
-                            hourly[idx]['sum'] += data['value']
-                            state = data['value']
-                            timestamp = data['time']
-                            
-                if '.8.' in name:
-                    haveReport_80 += 1
-                    for data in curve['data']:
-                        if data['status'] > 0:
-                            idx = data['time'][:13]
-                            if not idx in hourly:
-                                hourly[idx] = { 'sum':0, 'state':0 }
-                            hourly[idx]['state'] = data['value']
-                            state = data['value']
-                            timestamp = data['time']
-            
-            
-            # push statistics only if we have exactly one 15-min and one 1-day curve
-            if haveReport_A==1 and haveReport_80==1:
-                _LOGGER.debug("mixing curves to provide backward-statistics")
-                state = 0
-                statistics = []
-                sumsum = 0
-                
-                for idx in hourly:
-                    # skip unknown states from the beginning
-                    if state + hourly[idx]['state'] == 0:
-                        continue
-                    
-                    # create statistic entry
-                    timestamp = idx+":00:00+02:00"	#TODO: needs to calculate DST
-                    if hourly[idx]['state'] > 0:
-                        state = hourly[idx]['state']
-                    else:
-                        state += hourly[idx]['sum']
-                    
-                    sumsum += hourly[idx]['sum']
-                    
-                    if hourly[idx]['sum'] > 0:	# TODO: not sure if we can skip an hour when sum is zero. 
-                        statistics.append(
-                            StatisticData(
-                                start = datetime.fromisoformat(timestamp).astimezone(),
-                                state = round(state,1),
-                                sum = sumsum
+                for data in window['data']:
+                    value = data['value']
+                    dt=datetime.fromisoformat(data['time']+"+02:00").astimezone()       #TODO: needs to calculate DST
+                    if window['data'].index(data) == 0:                                 #first element in list will be the starting data
+                        if window['name'].find(":1.8.0") > 0:                           #we will add the delta values, separately for consumption and production
+                            self.start_values['consumption'] = value
+                        if window['name'].find(":2.8.0") > 0:
+                            self.start_values['production'] = value
+                        if window['name'].find("+A") > 0:
+                            if self.start_values['consumption'] is not None:
+                                hourly_sum = self.start_values['consumption']
+                                haveReport_A = True
+                            else:
+                                _LOGGER.warn('1.8.0 profile missing. Please add it to your report on EON portal')
+                        if window['name'].find("-A") > 0:
+                            if self.start_values['production'] is not None:
+                                hourly_sum = self.start_values['production']
+                                haveReport_A = True
+                            else:
+                                _LOGGER.warn('2.8.0 profile missing. Please add it to your report on EON portal')
+                    if haveReport_A:
+                        lastvalue = None
+                        if hourly_sum is not None:
+                            hourly_sum += value
+                            statistics.append(
+                                StatisticData(
+                                    start=dt,
+                                    state=round(value,3),
+                                    sum=round(hourly_sum,3)
+                                )
                             )
-                        )
+                            #_LOGGER.debug(f"data: {dt} {round(hourly_sum,3)}")
+                    else:
+                        if value > 0:
+                            lasttime = data['time']
+                            lastvalue = round(value,1)
 
-                metadata = StatisticMetaData(
-                    has_mean = False,
-                    has_sum = True,
-                    name = "w1000 "+reportname,
-                    source = 'recorder',
-                    statistic_id = statistic_id,
-                    unit_of_measurement = curve['unit'],
-                )
-                _LOGGER.debug("import statistics: "+statistic_id+" count: "+str(len(statistics)))
-                    
-                try:
-                    async_import_statistics(self._hass, metadata, statistics)
-                except Exception as ex:
-                    _LOGGER.warn("exception at async_import_statistics '"+statistic_id+"': "+str(ex))
-
-            else:
-                # report has other structure than a x.8.x and A curve
-                _LOGGER.debug("just publishing the state as-is")
+                if len(statistics) > 0:
+                    metadata = StatisticMetaData(
+                        has_mean=False,
+                        has_sum=True,
+                        name="w1000 "+reportname,
+                        source='recorder',
+                        statistic_id=statistic_id,
+                        unit_of_measurement=window['unit'],
+                    )
+                    _LOGGER.debug("import statistic: "+statistic_id+" count: "+str(len(statistics)))
                 
-            ret.append( {'curve':curve['name'], 'last_value':state, 'unit':curve['unit'], 'last_time':timestamp} )
+                    try:
+                        async_import_statistics(self._hass, metadata, statistics)
+                    except Exception as ex:
+                        _LOGGER.warn("exception at async_import_statistics '"+statistic_id+"': "+str(ex))
+
+                ret.append( {'curve':window['name'], 'last_value':lastvalue, 'unit':window['unit'], 'last_time':lasttime} )
                     
         else:
             _LOGGER.warn("error reading report: got http "+str(status) )
