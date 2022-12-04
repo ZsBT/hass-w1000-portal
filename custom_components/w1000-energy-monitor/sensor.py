@@ -46,7 +46,7 @@ class w1kSensor(SensorEntity):
         data = self._w1k_portal.get_data(self._name)
         _LOGGER.debug(data)
         
-        if data is not None:
+        if data is not None and data.get("state") is not None:
             self._attr_native_value = round(float(data.get("state")), 1)
             self._attributes = data.get("attributes")
             self._attr_native_unit_of_measurement = data.get("unit")
