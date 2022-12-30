@@ -5,6 +5,7 @@ It pulls data from W1000 portal reports.
 
 ## Changelog
 
+  - 2022-12-30: added package bs4 to requirements
   - 2022-12-05: implementing +A/-A data as statistics - huge thanks to [wrobi](https://github.com/wrobi) for making it! Please note, you need add curve `A` to your report (see the screenshots below)   
   - 2022-12-01: hotfix #9: restricting data polls to morning hours and HA reboots
   - 2022-11-22: fixed bug that occured when report name list included space in configuration.yaml
