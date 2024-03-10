@@ -344,16 +344,16 @@ class w1k_Portal(w1k_API):
                 out[report] = {
                     'state': dta['last_value'],
                     'unit': dta['unit'],
+                    'state_class': state_class,
                     'attributes': {
                         'curve': dta['curve'],
                         'generated': dta['last_time'],
-                        'state_class': state_class,
                     }
                 }
                 if dta['unit'].endswith('W') or dta['unit'].endswith('Var'):
-                    out[report]['attributes']['device_class'] = 'power'
+                    out[report]['device_class'] = 'power'
                 if dta['unit'].endswith('Wh') or dta['unit'].endswith('Varh'):
-                    out[report]['attributes']['device_class'] = 'energy'
+                    out[report]['device_class'] = 'energy'
 
         return out
 
