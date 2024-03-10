@@ -44,12 +44,14 @@ class w1kSensor(SensorEntity):
 
     async def async_update(self):
         data = self._w1k_portal.get_data(self._name)
-        _LOGGER.debug(data)
-        
+        _LOGGER.debug("async_update.data %s", data)
+
         if data is not None and data.get("state") is not None:
             self._attr_native_value = round(float(data.get("state")), 1)
             self._attributes = data.get("attributes")
             self._attr_native_unit_of_measurement = data.get("unit")
+            self._attr_device_class = data.get("device_class")
+            self._attr_state_class = data.get("state_class")
 
     def update_callback(self):
         self.async_schedule_update_ha_state(True)

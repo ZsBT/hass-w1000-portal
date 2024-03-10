@@ -56,8 +56,10 @@ CONFIG_SCHEMA = vol.Schema(
     extra=vol.ALLOW_EXTRA,
 )
 
+
 async def async_setup(hass, config):
-    monitor = w1k_Portal(hass, config[DOMAIN][CONF_USERNAME], config[DOMAIN][CONF_PASSWORD], config[DOMAIN][CONF_ENDPOINT], config[DOMAIN][CONF_REPORTS] )
+    monitor = w1k_Portal(hass, config[DOMAIN][CONF_USERNAME], config[DOMAIN][CONF_PASSWORD],
+                         config[DOMAIN][CONF_ENDPOINT], config[DOMAIN][CONF_REPORTS])
     hass.data[DOMAIN] = monitor
 
     now = dt_util.utcnow()
@@ -65,7 +67,7 @@ async def async_setup(hass, config):
     async_track_utc_time_change(
         hass,
         monitor.update,
-        hour=[6,7,9,now.hour],
+        hour=[6, 7, 9, now.hour],
         minute=now.minute,
         second=now.second
     )
@@ -74,7 +76,6 @@ async def async_setup(hass, config):
         discovery.async_load_platform(hass, "sensor", DOMAIN, {}, config)
     )
     return True
-
 
 
 class w1k_API:
@@ -86,7 +87,7 @@ class w1k_API:
         self.account_url = endpoint+"/Account/Login"
         self.profile_data_url = endpoint + "/ProfileData/ProfileData"
         self.lastlogin = None
-        self.reports = [ x.strip() for x in reports.split(",") ]
+        self.reports = [x.strip() for x in reports.split(",")]
         self.session = None
         self.start_values = {'consumption': None, 'production': None}
 
@@ -100,7 +101,6 @@ class w1k_API:
         
         return ret
         
-
     def mysession(self):
         if self.session:
             return self.session
@@ -138,8 +138,8 @@ class w1k_API:
                 content = (await resp.content.read()).decode("utf8")
                 status = resp.status
             
-            _LOGGER.debug("resp status http "+str(status) )
-            match = re.findall( r'W1000.start\((.+)sessionTimeout', content.replace("\n", " ") )
+            _LOGGER.debug("resp status http "+str(status))
+            match = re.findall(r'W1000.start\((.+)sessionTimeout', content.replace("\n", " "))
             
             if not status == 200:
                 _LOGGER.error("Login failed.")
@@ -147,7 +147,7 @@ class w1k_API:
                 _LOGGER.debug("Index page was: "+index_content)
                 return False
                 
-            if len(match)==0:
+            if len(match) == 0:
                 _LOGGER.error("could not find session data. invalid or locked account?")
                 _LOGGER.debug("HTML page: "+content)
                 return False
@@ -159,17 +159,15 @@ class w1k_API:
             
             for workarea in self.workareas:
                 for window in workarea['windows']:
-                    _LOGGER.debug("found report "+window['name']+" in workarea "+workarea['name'] )
+                    _LOGGER.debug("found report "+window['name']+" in workarea "+workarea['name'])
 
             return True
             
         except Exception as ex:
             availability = 'Offline'
-            _LOGGER.error("exception at login")
+            _LOGGER.exception("exception at login")
             print(datetime.now(), "Error retrive data from {0}.".format(str(ex)))
-            
-    
-    
+
     async def read_reportname(self, reportname: str):
         loginerror = False
         if not self.lastlogin or self.lastlogin + timedelta(minutes=10) < datetime.utcnow():
@@ -181,11 +179,10 @@ class w1k_API:
         for workarea in self.workareas:
             for window in workarea['windows']:
                 if window['name'] == reportname:
-                    return await self.read_reportid( int(window['reportid']), reportname )
+                    return await self.read_reportid(int(window['reportid']), reportname)
         
         _LOGGER.error("report "+reportname+" not found")
         return [None]
-        
 
     async def read_reportid(self, reportid: int, reportname: str, ssl=True):
         now = datetime.utcnow()
@@ -194,15 +191,16 @@ class w1k_API:
         loginerror = False
         if not self.lastlogin or self.lastlogin + timedelta(hours=1) < datetime.utcnow():
             loginerror = not await self.login()
-        
+
         if loginerror:
             return None
             
-        since = (now + timedelta(days=-2)).strftime("%Y-%m-%dT23:59:59")
-        until = (now + timedelta(days=0 )).strftime("%Y-%m-%dT%H:00:00")
+        since = (now + timedelta(days=-2)).astimezone().strftime("%Y-%m-%dT23:00:00%z")
+        until = (now + timedelta(days=0)).astimezone().strftime("%Y-%m-%dT%H:00:00%z")
         
         params = {
-            "page": 1,"perPage": 96*2,
+            "page": 1,
+            "perPage": 96*2,
             "reportId": reportid,
             "since": since,
             "until": until,
@@ -220,7 +218,7 @@ class w1k_API:
             status = 200
         else:
             async with session.get(
-                url=self.profile_data_url, data=params, ssl=ssl
+                url=self.profile_data_url, params=params, ssl=ssl
             ) as resp:
                 jsonResponse = await resp.json()
                 jsonResponse = sorted(jsonResponse, key=lambda k: k['name'], reverse=True)
@@ -236,7 +234,8 @@ class w1k_API:
             lasttime = None
             lastvalue = None
             ret = []
-            sensorname = f'sensor.w1000_'+(''.join(ch for ch in unicodedata.normalize('NFKD', reportname) if not unicodedata.combining(ch)))
+            sensorname = f'sensor.w1000_'+(
+                ''.join(ch for ch in unicodedata.normalize('NFKD', reportname) if not unicodedata.combining(ch)))
             statistic_id = sensorname
             statistics = []
             metadata = []
@@ -247,11 +246,11 @@ class w1k_API:
                 hourly_sum = None
                 for data in curve['data']:
                     value = data['value']
-                    dt=datetime.fromisoformat(data['time']+"+02:00").astimezone()       #TODO: needs to calculate DST
-                    if curve['data'].index(data) == 0:                                 #first element in list will be the starting data
-                        if '1.8.0' in name:
+                    dt = datetime.fromisoformat(data['time']+"+02:00").astimezone()  # TODO: needs to calculate DST
+                    if curve['data'].index(data) == 0:  # first element in list will be the starting data
+                        if '1.8.0' in name and value > 0:
                             self.start_values['consumption'] = value
-                        if '2.8.0' in name:
+                        if '2.8.0' in name and value > 0:
                             self.start_values['production'] = value
                         if name.endswith("A"):
                             value = 0
@@ -263,28 +262,28 @@ class w1k_API:
                             if name.endswith("-A"):
                                 dailycurve = '2.8.0'
                                 hourly_sum = self.start_values['production']
-                            if hourly_sum == None:
-                                _LOGGER.warn(f"{dailycurve} curve is missing. Please add it to your report '{reportname}'")
+                            if hourly_sum is None:
+                                _LOGGER.warning(f"{dailycurve} curve is missing. Please add it to your report '{reportname}'")
                             if curve['period'] != 60:
-                                _LOGGER.warn('Please set the period value to 60 min in curve settings')
+                                _LOGGER.warning('Please set the period value to 60 min in curve settings')
                     if haveReport_A:
                         if hourly_sum is not None:
                             hourly_sum += value
                             statistics.append(
                                 StatisticData(
                                     start=dt,
-                                    #state=round(value,3),
-                                    state = round(hourly_sum,3),
-                                    sum=round(hourly_sum,3)
+                                    # state=round(value,3),
+                                    state=round(hourly_sum, 3),
+                                    sum=round(hourly_sum, 3)
                                 )
                             )
-                            #_LOGGER.debug(f"data: {dt} {round(hourly_sum,3)}")
-                            lasttime = data['time']
-                            lastvalue = round(hourly_sum,3)
+                            if data['time'] > lasttime:
+                                lasttime = data['time']
+                                lastvalue = round(hourly_sum, 3)
                     else:
                         if value > 0:
                             lasttime = data['time']
-                            lastvalue = round(value,1)
+                            lastvalue = round(value, 3)
 
                 if len(statistics) > 0:
                     metadata = StatisticMetaData(
@@ -295,31 +294,29 @@ class w1k_API:
                         statistic_id=statistic_id,
                         unit_of_measurement=curve['unit'],
                     )
-                    #lastvalue = None
+                    # lastvalue = None
                     _LOGGER.debug("import statistic: "+statistic_id+" count: "+str(len(statistics)))
                 
                     try:
                         async_import_statistics(self._hass, metadata, statistics)
                     except Exception as ex:
-                        _LOGGER.warn("exception at async_import_statistics '"+statistic_id+"': "+str(ex))
+                        _LOGGER.exception("exception at async_import_statistics '"+statistic_id+"': "+str(ex))
 
-                ret.append( {'curve':curve['name'], 'last_value':lastvalue, 'unit':curve['unit'], 'last_time':lasttime} )
+                ret.append({
+                    'curve': curve['name'],
+                    'last_value': lastvalue,
+                    'unit': curve['unit'],
+                    'last_time': lasttime
+                })
 
         else:
-            _LOGGER.error("error http "+str(status) )
-            print( jsonResponse )
+            _LOGGER.error("error http "+str(status))
+            print(jsonResponse)
 
         return ret
 
 
-
-
-
-
-
-
 class w1k_Portal(w1k_API):
-
     def __init__(self, hass, username, password, endpoint, reports):
         super().__init__(username, password, endpoint, reports)
         self._hass = hass
@@ -344,11 +341,15 @@ class w1k_Portal(w1k_API):
                 else:
                     state_class = 'total'
                 
-                out[report] = { 'state': dta['last_value'], 'unit':dta['unit'], 'attributes':{
-                    'curve':dta['curve'],
-                    'generated':dta['last_time'],
-                    'state_class': state_class,
-                }}
+                out[report] = {
+                    'state': dta['last_value'],
+                    'unit': dta['unit'],
+                    'attributes': {
+                        'curve': dta['curve'],
+                        'generated': dta['last_time'],
+                        'state_class': state_class,
+                    }
+                }
                 if dta['unit'].endswith('W') or dta['unit'].endswith('Var'):
                     out[report]['attributes']['device_class'] = 'power'
                 if dta['unit'].endswith('Wh') or dta['unit'].endswith('Varh'):
@@ -360,7 +361,6 @@ class w1k_Portal(w1k_API):
         self._update_listeners.append(listener)
         _LOGGER.debug(f"registered sensor: {listener.entity_id}")
         listener.update_callback()
-
 
     def _notify_listeners(self):
         for listener in self._update_listeners:
