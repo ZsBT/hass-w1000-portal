@@ -277,7 +277,7 @@ class w1k_API:
                                     sum=round(hourly_sum, 3)
                                 )
                             )
-                            if data['time'] > lasttime:
+                            if lasttime and ( data['time'] > lasttime ) :
                                 lasttime = data['time']
                                 lastvalue = round(hourly_sum, 3)
                     else:
