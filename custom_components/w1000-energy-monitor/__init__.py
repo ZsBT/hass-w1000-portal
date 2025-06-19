@@ -89,6 +89,7 @@ class w1k_API:
         self.lastlogin = None
         self.reports = [x.strip() for x in reports.split(",")]
         self.session = None
+        self.jar = aiohttp.CookieJar(unsafe=True, quote_cookie=False)
         self.start_values = {'consumption': None, 'production': None}
 
     async def request_data(self, ssl=True):
@@ -101,17 +102,16 @@ class w1k_API:
         
         return ret
         
-    def mysession(self):
+    async def mysession(self):
         if self.session:
             return self.session
     
-        jar = aiohttp.CookieJar(unsafe=True)
-        self.session = aiohttp.ClientSession(cookie_jar=jar)
+        self.session = aiohttp.ClientSession(cookie_jar=self.jar)
         return self.session
 
     async def login(self, ssl=False):
         try:
-            session = self.mysession()
+            session = await self.mysession()
             async with session.get(
                 url=self.account_url, ssl=ssl
             ) as resp:
@@ -207,7 +207,7 @@ class w1k_API:
             "_": (now - timedelta(hours=3)).strftime("%s557")
         }
         
-        session = self.mysession()
+        session = await self.mysession()
         
         test = False    # TODO remove in the future
         
