@@ -1,3 +1,7 @@
+### ANNOUNCEMENT ###
+
+This integration stops working soon due to the EON W1000 portal closure.
+Further actions are discussed in poll https://github.com/ZsBT/hass-w1000-portal/discussions/38 .
 
 ## Purpose
 
