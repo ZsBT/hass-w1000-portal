@@ -1,7 +1,7 @@
-### ANNOUNCEMENT ###
+### ANNOUNCEMENT OF CLOSURE ###
 
-This integration stops working soon due to the EON W1000 portal closure.
-Further actions are discussed in poll https://github.com/ZsBT/hass-w1000-portal/discussions/38 .
+This integration stopped working due to the EON W1000 portal closure.
+As a replacement, you may want to use https://github.com/Netesfiu/EON-W1000-n8n
 
 ## Purpose
 
